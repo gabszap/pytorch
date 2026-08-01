@@ -84,18 +84,21 @@ remains the recommended baseline and fallback.
 
 ### Verified hardware results
 
-Tested on NVIDIA GeForce RTX 5060 Ti 16 GB with driver 595.84 and host maximum
-CUDA 13.2. Device reported compute capability `(12,0)` (sm_120).
-Using `torch==2.13.0+cu130` and `xformers==0.0.35`:
-- FP16/BF16 matmul passed.
-- Native SDPA baseline passed.
-- `xformers.ops.memory_efficient_attention` passed, with `fa2F@2.5.7-pt`
-  selected as the backend; CUTLASS/FA3 were unavailable for sm_120.
-
-This result applies only to this tested hardware/driver combination. This image
-does not include a separate Flash-Attention distribution. Native PyTorch
-scaled dot product attention (SDPA) remains the recommended baseline and
-fallback.
+#### NVIDIA GeForce RTX 5060 Ti 16 GB (Vast.ai)
+- **Environment**: Driver 595.84, host max CUDA 13.2, Capability `(12,0)` / sm_120.
+- **Stack**: `torch==2.13.0+cu130`, `xformers==0.0.35`, torch CUDA 13.0, cuDNN 92000/9.20.
+- **Validation Results**:
+  - **PASS**: `nvcc` 13.0 compiled/executed `-arch=sm_120` kernel (validates base-image/toolkit).
+  - **PASS**: Jupyter `python_312` kernel GPU/capability access (validates inheritance).
+  - **PASS**: FP16 and BF16 matmul.
+  - **PASS**: Native PyTorch Flash SDPA (`SDPBackend.FLASH_ATTENTION`).
+  - **PASS**: cuDNN convolution.
+  - **PASS**: `torch.compile`/Triton output matched eager.
+  - **PASS**: `xformers` (`fa2F@2.5.7-pt`). *Note: CUTLASS/FA3 unavailable for sm_120; execution succeeded.*
+- **Notes**:
+  - Results validate base-image, python, and pytorch inheritance for this exact hardware/driver; they do not generalize to other GPUs/drivers.
+  - No separate Flash-Attention or SageAttention packages are installed. Native PyTorch SDPA is recommended for SDPA operations.
+  - Multi-GPU/NCCL functionality was not tested.
 
 ## Build and run
 
