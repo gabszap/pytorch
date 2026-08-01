@@ -6,6 +6,9 @@ readonly REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 readonly DOCKERFILE="$REPOSITORY_ROOT/build/Dockerfile"
 readonly COMPOSE_FILE="$REPOSITORY_ROOT/docker-compose.yaml"
 readonly BUILD_WORKFLOW="$REPOSITORY_ROOT/.github/workflows/docker-build.yml"
+readonly CLEAR_CACHE_WORKFLOW="$REPOSITORY_ROOT/.github/workflows/clear-cache.yml"
+readonly DELETE_OLD_WORKFLOW="$REPOSITORY_ROOT/.github/workflows/delete-old-images.yml"
+readonly DELETE_UNTAGGED_WORKFLOW="$REPOSITORY_ROOT/.github/workflows/delete-untagged-images.yml"
 readonly BUILD_SCRIPTS="$REPOSITORY_ROOT/build/COPY_ROOT_0/opt/ai-dock/bin/build/layer0"
 readonly IMAGE_TEST="$REPOSITORY_ROOT/build/COPY_ROOT_0/opt/ai-dock/bin/tests/verify-pytorch.py"
 readonly GPU_VERIFIER="$REPOSITORY_ROOT/build/COPY_ROOT_0/opt/ai-dock/bin/tests/verify-gpu.py"
@@ -93,6 +96,20 @@ if [[ "$(grep -Fc 'uses: docker/build-push-action@v6' "$BUILD_WORKFLOW")" -ne 1 
 fi
 assert_not_contains "$BUILD_WORKFLOW" '^[[:space:]]{2}push:|pull_request:|matrix:|dockerhub|docker\.io|rocm|amd|cpu|cuda-1[12]|v2-'
 
+assert_contains "$CLEAR_CACHE_WORKFLOW" 'uses: actions/github-script@v7'
+for cleanup_workflow in "$DELETE_OLD_WORKFLOW" "$DELETE_UNTAGGED_WORKFLOW"; do
+    assert_contains "$cleanup_workflow" 'contents: read'
+    assert_contains "$cleanup_workflow" 'packages: write'
+    assert_contains "$cleanup_workflow" 'uses: actions/github-script@v7'
+    assert_contains "$cleanup_workflow" 'github-token: ${{ secrets.GITHUB_TOKEN }}'
+    assert_contains "$cleanup_workflow" 'github.paginate'
+    assert_contains "$cleanup_workflow" '/users/${encodedOwner}/packages/container/${encodedPackageName}/versions'
+    assert_contains "$cleanup_workflow" 'group: package-cleanup-${{ github.repository_owner }}-${{ github.event.repository.name }}'
+    assert_not_contains "$cleanup_workflow" 'DELETE_PACKAGES_TOKEN|orgs/|github-script@v6'
+done
+assert_contains "$DELETE_OLD_WORKFLOW" 'new Set(["latest", "latest-cuda"])'
+assert_contains "$DELETE_UNTAGGED_WORKFLOW" "workflow_run.conclusion == 'success'"
+
 [[ ! -e "$BUILD_SCRIPTS/amd.sh" ]] || fail "obsolete AMD build script still exists"
 [[ ! -e "$BUILD_SCRIPTS/cpu.sh" ]] || fail "obsolete CPU build script still exists"
 assert_contains "$BUILD_SCRIPTS/init.sh" 'this image only supports NVIDIA_GPU'
@@ -134,7 +151,7 @@ assert_contains "$GPU_WRAPPER" '/opt/ai-dock/bin/tests/verify-gpu.py'
 assert_contains "$GPU_WRAPPER" '--expected-capability "$EXPECTED_CAPABILITY_INPUT"'
 assert_not_contains "$GPU_WRAPPER" 'memory_efficient_attention|scaled_dot_product_attention'
 
-python3 - "$IMAGE_TEST" "$GPU_VERIFIER" <<'PY'
+python3 - "$IMAGE_TEST" "$GPU_VERIFIER" "$REPOSITORY_ROOT/build/tests/cleanup-workflows.py" <<'PY'
 import ast
 import pathlib
 import runpy
@@ -148,5 +165,6 @@ if not callable(gpu_verifier.get("main")):
     raise SystemExit("GPU verifier import did not define main")
 PY
 python3 "$GPU_VERIFIER" --help >/dev/null
+python3 "$REPOSITORY_ROOT/build/tests/cleanup-workflows.py"
 
 printf "Static configuration checks passed.\n"

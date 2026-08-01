@@ -1,56 +1,129 @@
 name: Delete Untagged Packages
 
-env:
-  PER_PAGE: 100
-
 on:
   workflow_dispatch:
+    inputs:
+      dry_run:
+        type: boolean
+        required: true
+        default: true
+        description: Log untagged versions without deleting them
   workflow_run:
     workflows: ["Docker Build"]
     types:
       - completed
 
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: package-cleanup-${{ github.repository_owner }}-${{ github.event.repository.name }}
+  cancel-in-progress: false
+
 jobs:
   delete-untagged:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     steps:
-      -
-        run: |
-          echo "PACKAGE_NAME=${GITHUB_REPOSITORY,,}" >> ${GITHUB_ENV}
-          echo "OWNER=orgs/${GITHUB_REPOSITORY_OWNER,,}" >> ${GITHUB_ENV}
-      -
-        uses: actions/github-script@v6
+      - name: Delete untagged package versions
+        uses: actions/github-script@v7
+        env:
+          PACKAGE_OWNER: ${{ github.repository_owner }}
+          PACKAGE_NAME: ${{ github.event.repository.name }}
+          DRY_RUN: ${{ inputs.dry_run }}
         with:
-          github-token: ${{ secrets.DELETE_PACKAGES_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const response = await github.request("GET /${{ env.OWNER }}/packages/container/${{ github.event.repository.name  }}/versions",
-              { per_page: ${{ env.PER_PAGE }}
-            });
-
-            const pages = (function() { 
-                if (typeof response.headers.link !== 'undefined') {
-                return response.headers.link.split(">").slice(-2)[0].split('=').slice(-1)[0]
-                }
-                return 1;
-            })();
-
-            console.log("Total pages: " + pages);
-            
-            for (let page = pages; page >= 1; page--) {
-              console.log("Processing page " + page)
-              
-              const response = await github.request("GET /${{ env.OWNER }}/packages/container/${{ github.event.repository.name  }}/versions",
-              { 
-                  per_page: ${{ env.PER_PAGE }},
-                  page: page
-              });
-              
-              for (version of response.data) {
-                if (version.metadata.container.tags.length == 0) {
-                    console.log("delete " + version.id)
-                    const deleteResponse = await github.request("DELETE /${{ env.OWNER }}/packages/container/${{ github.event.repository.name }}/versions/" + version.id, { });
-                        console.log("status " + deleteResponse.status)
-                }
+            function requireEnvironmentVariable(name) {
+              const value = process.env[name]?.trim();
+              if (!value) {
+                throw new Error(`Required environment variable ${name} is missing.`);
               }
+              return value;
             }
-            
+
+            function parseBooleanInput(name) {
+              const value = requireEnvironmentVariable(name);
+              if (value === "true") return true;
+              if (value === "false") return false;
+              throw new Error(`${name} must be either true or false; received ${JSON.stringify(value)}.`);
+            }
+
+            function parsePackageVersion(version) {
+              const id = String(version?.id ?? "");
+              if (!/^\d+$/.test(id)) {
+                throw new Error(`Package version has an invalid ID: ${JSON.stringify(version?.id)}.`);
+              }
+
+              const tags = version?.metadata?.container?.tags;
+              if (!Array.isArray(tags) || tags.some((tag) => typeof tag !== "string")) {
+                throw new Error(`Package version ${id} has invalid container tag metadata.`);
+              }
+
+              const updatedAt = version?.updated_at;
+              if (typeof updatedAt !== "string" || !Number.isFinite(Date.parse(updatedAt))) {
+                throw new Error(`Package version ${id} has an invalid updated_at timestamp.`);
+              }
+
+              return { id, tags: [...tags], updatedAt };
+            }
+
+            const owner = requireEnvironmentVariable("PACKAGE_OWNER");
+            const packageName = requireEnvironmentVariable("PACKAGE_NAME");
+            const isManualRun = context.eventName === "workflow_dispatch";
+            if (!isManualRun && context.eventName !== "workflow_run") {
+              throw new Error(`Unsupported workflow event: ${JSON.stringify(context.eventName)}.`);
+            }
+            const dryRun = isManualRun ? parseBooleanInput("DRY_RUN") : false;
+
+            const encodedOwner = encodeURIComponent(owner);
+            const encodedPackageName = encodeURIComponent(packageName);
+            const versionsPath = `/users/${encodedOwner}/packages/container/${encodedPackageName}/versions`;
+
+            let versionSnapshot;
+            try {
+              versionSnapshot = await github.paginate(`GET ${versionsPath}`, { per_page: 100 });
+            } catch (error) {
+              const status = error?.status ?? error?.response?.status;
+              if (status === 404) {
+                core.notice(`Package ${owner}/${packageName} does not exist yet; nothing to delete.`);
+                return;
+              }
+              throw error;
+            }
+
+            const packageVersions = versionSnapshot.map(parsePackageVersion);
+            const deletionCandidates = packageVersions.filter((version) => version.tags.length === 0);
+
+            for (const version of packageVersions) {
+              if (version.tags.length === 0) {
+                core.info(
+                  `Candidate version id=${version.id} tags=${JSON.stringify(version.tags)} ` +
+                  `updated_at=${version.updatedAt}.`
+                );
+                continue;
+              }
+              core.info(
+                `Keeping tagged version id=${version.id} tags=${JSON.stringify(version.tags)} ` +
+                `updated_at=${version.updatedAt}.`
+              );
+            }
+
+            if (deletionCandidates.length === 0) {
+              core.notice("No untagged package versions are eligible for deletion.");
+              return;
+            }
+
+            if (dryRun) {
+              core.notice(`Dry run complete; would delete ${deletionCandidates.length} version(s).`);
+              return;
+            }
+
+            for (const version of deletionCandidates) {
+              const deletePath = `${versionsPath}/${encodeURIComponent(version.id)}`;
+              const response = await github.request(`DELETE ${deletePath}`);
+              core.info(`Deleted version id=${version.id}; status=${response.status}.`);
+            }
+
+            core.notice(`Deleted ${deletionCandidates.length} untagged package version(s).`);
