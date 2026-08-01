@@ -1,5 +1,24 @@
 ## Notice:
 
+This repository is a personally maintained, modified derivative of
+[AI-Dock PyTorch](https://github.com/ai-dock/pytorch), originally authored by
+Robert Ballantyne. It is not an official AI-Dock project. Public distribution
+of this derivative is undertaken with the explicit permission required by the
+custom license. The original notice follows unchanged.
+
+The derivative image bundles `xformers==0.0.35` from the official PyTorch
+CUDA 13.0 wheel index. Its exact Linux amd64 wheel is
+`xformers-0.0.35-py39-none-manylinux_2_28_x86_64.whl` with SHA-256
+`962eb73f7243fb6a6b68ed85ed8f97780070ee35c1be464eefe3299b0382391d`.
+The official stable-ABI wheel metadata declares Python `>=3.9` and
+`torch>=2.10`; this image pins and preserves `torch==2.13.0+cu130`. RTX
+50/sm120 xformers kernel execution is pending real GPU validation and is
+expected to use the Triton fallback where
+CUTLASS/FA2/FA3 backends do not support sm120. Native PyTorch SDPA remains the
+recommended fallback. Separate FlashAttention and SageAttention extensions
+are intentionally excluded because compatible official CUDA 13/sm120 wheels
+are not included in this exact stack and could alter its pinned dependencies.
+
 I have chosen to apply a custom license to this software for the following reasons:
 
 - **Uniqueness of Containers:** Common open-source licenses may not adequately address the nuances of software distributed within containers. My custom license ensures clarity regarding the separation of my code from bundled software, thereby respecting the rights of other authors.

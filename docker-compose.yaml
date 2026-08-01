@@ -1,4 +1,3 @@
-version: "3.8"
 # Compose file build variables set in .env
 services:
   supervisor:
@@ -6,14 +5,23 @@ services:
     build:
       context: ./build
       args:
-        IMAGE_BASE: ${IMAGE_BASE:-ghcr.io/ai-dock/python:3.10-v2-cuda-11.8.0-runtime-22.04}
-        PYTORCH_VERSION: ${PYTORCH_VERSION:-2.3.0}
+        IMAGE_BASE: ${IMAGE_BASE:-ghcr.io/gabszap/python:3.12-v3-cuda-13.0.3-cudnn-runtime-24.04}
+        PYTHON_VERSION: ${PYTHON_VERSION:-3.12}
+        PYTHON_VENV_NAME: ${PYTHON_VENV_NAME:-python_312}
+        PYTORCH_VERSION: ${PYTORCH_VERSION:-2.13.0+cu130}
+        TORCHVISION_VERSION: ${TORCHVISION_VERSION:-0.28.0+cu130}
+        TORCHAUDIO_VERSION: ${TORCHAUDIO_VERSION:-2.11.0+cu130}
+        PYTORCH_INDEX_URL: ${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cu130}
+        XFORMERS_VERSION: ${XFORMERS_VERSION:-0.0.35}
+        XFORMERS_INDEX_URL: ${XFORMERS_INDEX_URL:-https://download.pytorch.org/whl/cu130}
+        XFORMERS_WHEEL: ${XFORMERS_WHEEL:-xformers-0.0.35-py39-none-manylinux_2_28_x86_64.whl}
+        XFORMERS_WHEEL_SHA256: ${XFORMERS_WHEEL_SHA256:-962eb73f7243fb6a6b68ed85ed8f97780070ee35c1be464eefe3299b0382391d}
       tags:
-        - "ghcr.io/ai-dock/pytorch:${IMAGE_TAG:-2.3.0-py3.10-v2-cuda-11.8.0-runtime-22.04}"
+        - "ghcr.io/gabszap/pytorch:${IMAGE_TAG:-2.13.0-py3.12-v3-cuda-13.0.3-cudnn-runtime-24.04}"
         
-    image: ghcr.io/ai-dock/pytorch:${IMAGE_TAG:-2.3.0-py3.10-v2-cuda-11.8.0-runtime-22.04}
+    image: ghcr.io/gabszap/pytorch:${IMAGE_TAG:-2.13.0-py3.12-v3-cuda-13.0.3-cudnn-runtime-24.04}
     
-    ## For Nvidia GPU's - You probably want to uncomment this
+    ## For NVIDIA GPU access, uncomment this reservation.
     #deploy:
     #  resources:
     #    reservations:
@@ -24,7 +32,6 @@ services:
     
     devices:
       - "/dev/dri:/dev/dri"
-      #- "/dev/kfd:/dev/kfd"
       
     volumes:
       # Workspace
@@ -51,6 +58,7 @@ services:
         - DIRECT_ADDRESS_GET_WAN=${DIRECT_ADDRESS_GET_WAN:-false}
         - WORKSPACE=${WORKSPACE:-/workspace}
         - WORKSPACE_SYNC=${WORKSPACE_SYNC:-false}
+        - JUPYTER_TYPE=${JUPYTER_TYPE:-lab}
         - JUPYTER_PORT_HOST=${JUPYTER_PORT_HOST:-8888}
         - JUPYTER_METRICS_PORT=${JUPYTER_METRICS_PORT:-28888}
         - JUPYTER_URL=${JUPYTER_URL:-}
@@ -67,4 +75,4 @@ services:
         - SYNCTHING_UI_PORT_HOST=${SYNCTHING_UI_PORT_HOST:-8384}
         - SYNCTHING_TRANSPORT_PORT_HOST=${SYNCTHING_TRANSPORT_PORT_HOST:-22999}
         - SYNCTHING_URL=${SYNCTHING_URL:-}
-        #- PROVISIONING_SCRIPT=https://raw.githubusercontent.com/ai-dock/pytorch/main/config/provisioning/default.sh
+        #- PROVISIONING_SCRIPT=https://raw.githubusercontent.com/gabszap/pytorch/main/config/provisioning/default.sh
